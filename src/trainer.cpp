@@ -11,6 +11,7 @@
 namespace multiverso { namespace ftrl
 {
 
+	static int32_t col_size = 10;
     //Trainer::Trainer(multiverso::Barrier *barrier){
     //    barrier_ = barrier;
     //}
@@ -41,13 +42,15 @@ namespace multiverso { namespace ftrl
             std::vector<float> w_vec,grad_vec,ada_grad_vec;
             for(int32_t i = 0; i < samp_feat_num;i++)
             {
-                 int32_t feat_index = samp->feature_index(i);
-                 Row<float>& grad_row = GetRow<float>(kWeightGradTable,feat_index);
-                 Row<float>& ada_grad_row = GetRow<float>(kWeightAdaGradTable,feat_index);
+                 int32_t feat_index  = samp->feature_index(i);
+				 int32_t feat_group  = feat_index / col_size;
+				 int32_t feat_remain = feat_index % col_size;
+                 Row<float>& grad_row = GetRow<float>(kWeightGradTable,feat_group);
+                 Row<float>& ada_grad_row = GetRow<float>(kWeightAdaGradTable,feat_group);
 
                  //get weight to do
 				 float grad = 0.,adagrad = 0.;
-				 grad_row.At(0,&grad);ada_grad_row.At(0,&adagrad);
+				 grad_row.At(feat_remain,&grad);ada_grad_row.At(feat_remain,&adagrad);
                  float wi = GetWeight(grad,adagrad);
 
 				 float fea_val = samp->feature_val(i);
@@ -59,14 +62,11 @@ namespace multiverso { namespace ftrl
             }
 
             float grad = -samp->label() + sigmoid(func_val);
-			//if (grad == 0.)
-				//Log::Info("grad is zero %f \t %f",samp->label(),func_val);
             for(int32_t i = 0; i < samp_feat_num;i++){
                     int32_t feat_index = samp->feature_index(i);
                     Update(feat_index,w_vec[i],grad_vec[i] * grad,ada_grad_vec[i]);
              }
         }
-		//Clock();
         if (TrainerId() == 0)
         {
             Log::Info("Rank = %d, Training Time used: %.2f s \n", 
@@ -93,15 +93,19 @@ namespace multiverso { namespace ftrl
     void Trainer::SaveModel(const std::string model_path){
                 FILE* fid = nullptr;
                 fid = fopen(model_path.c_str(), "wt");
-                for (int i = 0; i < Config::num_features; ++i)
+				float grad = 0.,adagrad = 0.;
+
+                for (int i = 0; i < Config::num_features / col_size; ++i)
                 {
                     Row<float>& grad_row = GetRow<float>(kWeightGradTable,i);
                     Row<float>& ada_grad_row = GetRow<float>(kWeightAdaGradTable,i);
                     //get weight to do
-					float grad = 0.,adagrad = 0.;
-					grad_row.At(0,&grad);ada_grad_row.At(0,&adagrad);
-                    float wi = GetWeight(grad,adagrad);
-                    fprintf(fid, "%lf\n", wi);
+					for (int j = 0; j < col_size; ++j)
+					{
+						grad_row.At(j,&grad);ada_grad_row.At(j,&adagrad);
+						float wi = GetWeight(grad,adagrad);
+						fprintf(fid, "%lf\n", wi);
+					}
                 }
                 fclose(fid);
     }
@@ -110,8 +114,11 @@ namespace multiverso { namespace ftrl
             float sigma = (sqrt(ada_grad + grad_square ) - sqrt(ada_grad)) / Config::alpha_;
             float grad_update = grad - sigma * w;
             float ada_grad_update = grad_square;
-            Add<float>(kWeightGradTable, feat_index, 0, grad_update);
-            Add<float>(kWeightAdaGradTable, feat_index, 0, ada_grad_update);
+
+			int32_t feat_group  = feat_index / col_size;
+			int32_t feat_remain = feat_index % col_size;
+            Add<float>(kWeightGradTable, feat_group, feat_remain, grad_update);
+            Add<float>(kWeightAdaGradTable, feat_group, feat_remain, ada_grad_update);
     }
    
     void ParamLoader::ParseAndRequest(DataBlockBase* data_block)
@@ -120,8 +127,9 @@ namespace multiverso { namespace ftrl
             reinterpret_cast<DataBlock*>(data_block);
         for(auto p : ftrl_data_block->feature_index_set)
         {
-           RequestRow(kWeightGradTable, p);
-           RequestRow(kWeightAdaGradTable, p);
+		   int32_t feat_group  = p / col_size;
+           RequestRow(kWeightGradTable, feat_group);
+           RequestRow(kWeightAdaGradTable, feat_group);
         }
        
     }

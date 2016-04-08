@@ -12,6 +12,7 @@
 
 namespace multiverso { namespace ftrl
 {     
+	static int col_size = 10;
     class Ftrl_Lr
     {
     public:
@@ -53,7 +54,6 @@ namespace multiverso { namespace ftrl
             }
             delete param_loader;
             
-            //DumpDocTopic();
             //DumpModel();       
             //delete barrier;
         }
@@ -98,11 +98,14 @@ namespace multiverso { namespace ftrl
 
         static void Initialize()
         {
-           for (int32_t i = 0; i < Config::num_features; ++i)
+           for (int32_t i = 0; i < Config::num_features / col_size; ++i)
            {
-                Multiverso::AddToServer<float>(kWeightGradTable,i, 0, 0.);
-                Multiverso::AddToServer<float>(kWeightAdaGradTable,i, 0, 0.); 
-            }
+           	for (int32_t j = 0; j < col_size ; ++j)
+			{
+                Multiverso::AddToServer<float>(kWeightGradTable,i, j, 0.);
+                Multiverso::AddToServer<float>(kWeightAdaGradTable,i, j, 0.); 
+			}
+           }
             Multiverso::Flush();
         }
 
@@ -136,35 +139,6 @@ namespace multiverso { namespace ftrl
         }
 
 
-        static void DumpDocTopic()
-        {
-            return;
-            /*
-            Row<int32_t> doc_topic_counter(0, Format::Sparse, kMaxDocLength); 
-            for (int32_t block = 0; block < Config::num_blocks; ++block)
-            {
-                std::ofstream fout("doc_topic." + std::to_string(block));
-                data_stream->BeforeDataAccess();
-                DataBlock& data_block = data_stream->CurrDataBlock();
-                for (int i = 0; i < data_block.Size(); ++i)
-                {
-                    Document* doc = data_block.GetOneDoc(i);
-                    doc_topic_counter.Clear();
-                    doc->GetDocTopicVector(doc_topic_counter);
-                    fout << i << " ";  // doc id
-                    Row<int32_t>::iterator iter = doc_topic_counter.Iterator();
-                    while (iter.HasNext())
-                    {
-                        fout << " " << iter.Key() << ":" << iter.Value();
-                        iter.Next();
-                    }
-                    fout << std::endl;
-                }
-                data_stream->EndDataAccess();
-            }
-            */
-        }
-
         static void CreateTable()
         {
             int32_t num_features = Config::num_features;
@@ -172,18 +146,19 @@ namespace multiverso { namespace ftrl
             multiverso::Format dense_format = multiverso::Format::Dense;
             //multiverso::Format sparse_format = multiverso::Format::Sparse;
 
-            Multiverso::AddServerTable(kWeightGradTable, num_features,
-                1, float_type, dense_format);
-            Multiverso::AddCacheTable(kWeightGradTable, num_features,
-                1, float_type, dense_format);
-            Multiverso::AddAggregatorTable(kWeightGradTable, num_features,
-                1, float_type, dense_format);
-            Multiverso::AddServerTable(kWeightAdaGradTable, num_features,
-                1, float_type, dense_format);
-            Multiverso::AddCacheTable(kWeightAdaGradTable, num_features,
-                1, float_type, dense_format);
-            Multiverso::AddAggregatorTable(kWeightAdaGradTable, num_features,
-                1, float_type, dense_format);
+			int feature_group = num_features / col_size;
+            Multiverso::AddServerTable(kWeightGradTable, feature_group,
+                col_size, float_type, dense_format);
+            Multiverso::AddCacheTable(kWeightGradTable, feature_group,
+                col_size, float_type, dense_format);
+            Multiverso::AddAggregatorTable(kWeightGradTable, feature_group,
+                col_size, float_type, dense_format);
+            Multiverso::AddServerTable(kWeightAdaGradTable, feature_group,
+                col_size, float_type, dense_format);
+            Multiverso::AddCacheTable(kWeightAdaGradTable, feature_group,
+                col_size, float_type, dense_format);
+            Multiverso::AddAggregatorTable(kWeightAdaGradTable, feature_group,
+                col_size, float_type, dense_format);
 
         }
         
@@ -191,12 +166,12 @@ namespace multiverso { namespace ftrl
         {
             multiverso::Format dense_format = multiverso::Format::Dense;
             //multiverso::Format sparse_format = multiverso::Format::Sparse;
-            for (int32_t w = 0; w < Config::num_features; ++w)
+            for (int32_t w = 0; w < Config::num_features / col_size; ++w)
             {
                     Multiverso::SetServerRow(kWeightGradTable,
-                            w, dense_format, 1);
+                            w, dense_format, col_size);
                     Multiverso::SetCacheRow(kWeightAdaGradTable,
-                            w, dense_format, 1);
+                            w, dense_format, col_size);
             }
         }
     };
